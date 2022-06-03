@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'blog_app',
     'graphene_django',
     'django_filters',
+    'graphql_auth'
 ]
 
 
@@ -152,7 +153,6 @@ GRAPHQL_JWT = {
     "JWT_EXPIRATION_DELTA": timedelta(days=7),
     "JWT_REFRESH_EXPIRATION_DELTA": timedelta(days=7),
     "JWT_ALLOW_ANY_CLASSES": [
-
         "graphql_auth.mutations.ObtainJSONWebToken",
     ],
     # optional

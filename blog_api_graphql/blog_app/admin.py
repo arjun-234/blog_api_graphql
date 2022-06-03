@@ -4,7 +4,7 @@ from .models import *
 
 
 admin.site.register(Blog)
-
+admin.site.register(Comment)
 class TokenAdmin(admin.ModelAdmin):
     list_display = ('token', 'user')
 admin.site.register(UserToken, TokenAdmin)

@@ -80,10 +80,10 @@ class BlogType(DjangoObjectType):
 
 class Query(graphene.ObjectType):
     all_blogs = graphene.List(BlogType)
-    blog = graphene.Field(BlogType, blog_id=graphene.Int())
+    blog = graphene.Field(BlogType, blog_id=graphene.ID())
 
     all_authors = graphene.List(AuthorType)
-    author = graphene.Field(AuthorType, author_id=graphene.Int())
+    author = graphene.Field(AuthorType, author_id=graphene.ID())
 
     @authenticate_role
     def resolve_all_authors(self, info, **kwargs):
@@ -150,6 +150,7 @@ class BlogInput(graphene.InputObjectType):
     id = graphene.ID()
     title = graphene.String()
     date = graphene.String()
+    img_link = graphene.String()
     content = graphene.String()
     author = graphene.ID()
 
@@ -269,16 +270,19 @@ class UpdateAuthor(graphene.Mutation):
 
 class LogoutAuthor(graphene.Mutation):
     class Arguments:
-        author_id = graphene.ID()
+        author_id = graphene.ID(required=True)
 
     msg = graphene.String()
 
     @staticmethod
-    @authenticate_role
     def mutate(root,info,author_id):
-        obj=UserToken.objects.get(user_id=author_id)
-        obj.delete()
-        return LogoutAuthor(msg='succfully logout!')
+        if UserToken.objects.filter(user_id=author_id).exists():
+            obj=UserToken.objects.get(user_id=author_id)
+            obj.delete()
+            return LogoutAuthor(msg='succfully logout!')
+        else:
+            return LogoutAuthor(msg='succfully logout!')
+
 
 
 class DeleteAuthor(graphene.Mutation):
@@ -331,7 +335,8 @@ class CreateBlog(graphene.Mutation):
             title=blog_data.title,
             date=today_date,
             content=blog_data.content,
-            author=User.objects.get(id=blog_data.author)
+            author=User.objects.get(id=blog_data.author),
+            img_link = blog_data.img_link
         )
         blog_instance.save()
         return CreateBlog(msg="Blog has been created!",blog=blog_instance)
@@ -361,6 +366,8 @@ class UpdateBlog(graphene.Mutation):
 
         blog_instance = Blog.objects.get(id=blog_data.id)
 
+        if blog_data.img_link is not None:
+            blog_instance.img_link=blog_data.img_link
         if blog_data.title is not None:
             blog_instance.title=blog_data.title
         if blog_data.content is not None:

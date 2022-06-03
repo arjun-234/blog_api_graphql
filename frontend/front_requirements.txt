@@ -59,6 +59,7 @@ graphene==2.1.9
 graphene-django==2.15.0
 graphql-core==2.3.2
 graphql-relay==2.0.1
+graphqlclient==0.2.4
 grpcio==1.44.0
 h11==0.13.0
 h5py==3.6.0
