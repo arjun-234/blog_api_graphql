@@ -5,6 +5,7 @@ class Blog(models.Model):
     title = models.CharField(max_length=50)
     date = models.CharField(max_length=30)
     content = models.TextField()
+    img_link =  models. CharField(max_length=300,null=True)
     author = models.ForeignKey(User,on_delete=models.CASCADE)
     likes = models.ManyToManyField(User,related_name='blog_likes')
     unlikes = models.ManyToManyField(User,related_name='blog_unlikes')
@@ -28,4 +29,9 @@ class Comment(models.Model):
         return self.comment
 
 
-
+class UserToken(models.Model):
+    token = models.CharField(max_length=300)
+    user = models.ForeignKey(User, on_delete= models.CASCADE)
+    
+    def __str__(self):
+        return self.token

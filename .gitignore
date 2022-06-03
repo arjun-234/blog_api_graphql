@@ -3,5 +3,6 @@
 *.pyc
 __pycache__/
 *.ipynb
-/env
+/benv
+/fenv
 db.sqlite3

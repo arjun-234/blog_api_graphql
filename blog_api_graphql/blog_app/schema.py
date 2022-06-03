@@ -3,7 +3,6 @@ from graphene_django import DjangoObjectType, DjangoListField
 from graphene_django.filter import DjangoFilterConnectionField
 from graphene import relay
 from .models import *
-from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate,login,logout
 from django.contrib.auth.models import User
 from django_filters import FilterSet, OrderingFilter
@@ -11,10 +10,31 @@ import django_filters
 from .validator import Validator
 from datetime import date
 import graphql_jwt
+from graphql_jwt.shortcuts import get_token
 
 
+#instance of validator class
 validator = Validator()
 
+
+# Auth Decorator
+def authenticate_role(func):
+    def wrap(self,info,**kwargs):
+        auth_header = info.context.META.get('HTTP_AUTHORIZATION')
+        if auth_header is None:
+            raise Exception('Authentication Credentials were not provieded!!')
+        else:
+            new_token=auth_header.replace("JWT","").replace(" ","")
+            if UserToken.objects.filter(token=new_token).exists():
+                return func(self,info,**kwargs)
+            raise Exception("You have logged out!, log in again!")
+    return wrap
+
+
+class TokenType(DjangoObjectType):
+    class Meta:
+        model=UserToken
+        fields=['token','user']
 
 class CommentType(DjangoObjectType):
     class Meta:
@@ -65,6 +85,7 @@ class Query(graphene.ObjectType):
     all_authors = graphene.List(AuthorType)
     author = graphene.Field(AuthorType, author_id=graphene.Int())
 
+    @authenticate_role
     def resolve_all_authors(self, info, **kwargs):
         user = info.context.user
         print(user)
@@ -72,14 +93,49 @@ class Query(graphene.ObjectType):
         #     raise Exception("Authentication credentials were not provided")
         return User.objects.all()
 
+    @authenticate_role
     def resolve_author(self, info, author_id):
         return User.objects.get(id=author_id)
 
+    @authenticate_role
     def resolve_all_blogs(self, info, **kwargs):
         return Blog.objects.all()
 
+    @authenticate_role
     def resolve_blog(self, info, blog_id):
         return Blog.objects.get(id=blog_id)
+
+
+class storeToken(graphene.Mutation):
+    class Arguments:
+        username=graphene.String(required=True)
+        password=graphene.String(required=True)
+
+    token = graphene.Field(TokenType)
+    msg=graphene.String()
+
+    def mutate(self,info,username,password):
+        token=None
+        if not User.objects.filter(username=username).exists():
+            return storeToken(token=None, msg="invalid username !")
+        valid_user = authenticate(username=username,password=password)
+        if valid_user:
+            user_obj = User.objects.get(username=username)
+            if User.objects.filter(id=user_obj.id).exists():
+                if UserToken.objects.filter(user_id=user_obj.id).exists():
+                    token_obj=UserToken.objects.get(user_id=user_obj.id)
+                    print(token_obj,"@@@@@@@@@@@@@@@@@@@@@@@@")
+                    return storeToken(token=token_obj, msg="logged in Successfully!")
+                else:
+                    user = User.objects.get(id=user_obj.id)
+                    token = get_token(user)
+                    token_obj=UserToken(token=token,user=User.objects.get(id=user_obj.id))
+                    token_obj.save()
+                    return storeToken(token=token_obj, msg="logged in Successfully!")
+            else:
+                return storeToken(token=None,msg="Invalid username!")
+        else:
+            return storeToken(token=None,msg="Invalid Credentials!")
 
 
 class AuthorInput(graphene.InputObjectType):
@@ -156,6 +212,7 @@ class CreateAuthor(graphene.Mutation):
         author_instance.save()
         return CreateAuthor(msg="Author has been created!",author=author_instance)
 
+
 class UpdateAuthor(graphene.Mutation):
     class Arguments:
         author_data = AuthorInput(required=True)
@@ -163,6 +220,7 @@ class UpdateAuthor(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, author_data=None):
 
         if author_data.id is not None:
@@ -209,44 +267,19 @@ class UpdateAuthor(graphene.Mutation):
         return UpdateAuthor(msg="Author has been Updated!",author=author_instance)
 
 
-class LoginAuthor(graphene.Mutation):
-    class Arguments:
-        username = graphene.String(required=True)
-        password = graphene.String(required=True)
-    token = graphene.String()
-    msg = graphene.String()
-
-    @staticmethod
-    def mutate(root, info, username, password):
-        if not User.objects.filter(username=username).exists():
-            return LoginAuthor(token=None, msg="invalid username")
-        
-        valid_user = authenticate(username=username,password=password)
-        if valid_user:
-            token,_ = Token.objects.get_or_create(user=User.objects.get(username=username))
-            return LoginAuthor(token=token.key,msg="Logged in sucessfully!")
-        else:
-            return LoginAuthor(token=None,msg="Invalid Credentials")
-
-
 class LogoutAuthor(graphene.Mutation):
     class Arguments:
-        username = graphene.String(required=True)
+        author_id = graphene.ID()
+
     msg = graphene.String()
 
     @staticmethod
-    def mutate(root, info, username):
-        if not User.objects.filter(username=username).exists():
-            return LoginAuthor(token=None, msg="invalid username")
-        
-        user = User.objects.get(username=username)
+    @authenticate_role
+    def mutate(root,info,author_id):
+        obj=UserToken.objects.get(user_id=author_id)
+        obj.delete()
+        return LogoutAuthor(msg='succfully logout!')
 
-        if Token.objects.filter(user=user).exists():
-            token = Token.objects.get(user=user)
-            token.delete()
-            return LogoutAuthor(msg="Logged out sucessfully!")
-        else:
-            return LogoutAuthor(msg="Already logged out!")
 
 class DeleteAuthor(graphene.Mutation):
     class Arguments:
@@ -255,6 +288,7 @@ class DeleteAuthor(graphene.Mutation):
 
     msg = graphene.String()
     @staticmethod
+    @authenticate_role
     def mutate(root, info, id):
         if not User.objects.filter(id=id).exists():
             return DeleteAuthor(msg="invalid ID", author=None)
@@ -271,6 +305,7 @@ class CreateBlog(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, blog_data=None):
         if blog_data.title is not None:
             if len(blog_data.title.strip()) == 0:
@@ -308,6 +343,7 @@ class UpdateBlog(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, blog_data=None):
         if blog_data.id is not None:
             if not Blog.objects.filter(id=blog_data.id).exists():
@@ -341,6 +377,7 @@ class DeleteBlog(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, id):
         if not Blog.objects.filter(id=id).exists():
             return DeleteBlog(msg="invalid ID", blog=None)
@@ -356,6 +393,7 @@ class LikeBlog(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, blog_id, author_id):
         if blog_id is not None:
             if not Blog.objects.filter(id=blog_id).exists():
@@ -389,6 +427,7 @@ class UnikeBlog(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, blog_id, author_id):
         if blog_id is not None:
             if not Blog.objects.filter(id=blog_id).exists():
@@ -421,6 +460,7 @@ class CreateComment(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, comment_data=None):
 
         if comment_data.comment is not None:
@@ -460,6 +500,7 @@ class UpdateComment(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, comment_data=None):
 
         if comment_data.id is not None:
@@ -487,6 +528,7 @@ class DeleteComment(graphene.Mutation):
     msg = graphene.String()
 
     @staticmethod
+    @authenticate_role
     def mutate(root, info, id):
         if not Comment.objects.filter(id=id).exists():
             return DeleteComment(msg="invalid ID", comment=None)
@@ -499,7 +541,6 @@ class Mutation(graphene.ObjectType):
     create_author = CreateAuthor.Field()
     update_author = UpdateAuthor.Field()
     delete_author = DeleteAuthor.Field()
-    login_author = LoginAuthor.Field()
     logout_author = LogoutAuthor.Field()
     create_blog = CreateBlog.Field()
     update_blog = UpdateBlog.Field()
@@ -509,8 +550,9 @@ class Mutation(graphene.ObjectType):
     create_comment = CreateComment.Field()
     update_comment = UpdateComment.Field()
     delete_comment = DeleteComment.Field()
-    token_auth = graphql_jwt.ObtainJSONWebToken.Field()
-    verify_token = graphql_jwt.Verify.Field()
-    refresh_token = graphql_jwt.Refresh.Field()
+    # token_auth = graphql_jwt.ObtainJSONWebToken.Field()
+    # verify_token = graphql_jwt.Verify.Field()
+    # refresh_token = graphql_jwt.Refresh.Field()
+    login_author = storeToken.Field()
 
 schema = graphene.Schema(query=Query, mutation=Mutation)
